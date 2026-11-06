@@ -1,0 +1,32 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local settings and secrets
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/
+
+# Notebook scratch files
+.ipynb_checkpoints/
+
+# Keep folders in Git without committing data or generated artifacts
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+models/*
+!models/.gitkeep
+reports/*
+!reports/.gitkeep
