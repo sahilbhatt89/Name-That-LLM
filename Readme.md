@@ -4,8 +4,12 @@ Identify which LLM generated a paragraph of text. This is a supervised,
 multiclass text classification project: `text` is the input and `model` is the
 target label.
 
-This repository currently contains project setup only. Data processing,
-feature extraction, training, evaluation, and prediction are not implemented.
+The first goal is to learn the Transformer from *Attention Is All You Need* by
+implementing its components in plain Python, then apply them to LLM attribution.
+The current implementation covers tokenization, embedding lookup, single-head
+and multi-head self-attention, and residual addition. These are forward-pass
+calculations with randomly initialized parameters; there is no trained
+classifier yet.
 
 ## Environment
 
@@ -17,17 +21,80 @@ source .venv/bin/activate
 python -m pip install -e '.[dev,notebooks]'
 ```
 
-The environment includes pandas, scikit-learn, and PyArrow for future data work,
-Ruff and pytest for development, and JupyterLab for exploration.
+The environment includes pandas, scikit-learn, and PyArrow for data work,
+Ruff and pytest for development, and JupyterLab for exploration. The Transformer
+components use Python lists and standard-library modules; PyTorch is not required.
+
+## Current components
+
+| Component | Location | Behavior |
+| --- | --- | --- |
+| Tokenizer | `src/name_that_llm/tokenizer.py` | `tokenize`, `build_vocab`, and `encode`; preserves case and punctuation, with `<PAD>` and `<UNK>` IDs |
+| Embeddings | `src/name_that_llm/embedding.py` | Reproducible random initialization and embedding lookup; padding row is zero |
+| Sinusoidal positions | `notebooks/UnderstandingDataset.ipynb` | Creates positional vectors and adds them to token embeddings |
+| Self-attention | `src/name_that_llm/attention.py` | Query/key/value projections, scaled dot-product scores, and stable softmax |
+| Multi-head attention | `src/name_that_llm/attention.py` | Independent heads, concatenation, and output projection back to `d_model` |
+| Residual addition | `src/name_that_llm/residual.py` | Elementwise addition with matching-shape checks |
+
+Attention functions receive projection matrices from the caller. Initialize
+these once and reuse them for subsequent inputs. `multi_head_attention` returns
+an output of shape `sequence_length × d_model` and weights of shape
+`num_heads × sequence_length × sequence_length`.
+
+Padding and causal masks, layer normalization, feed-forward blocks, complete
+encoder/decoder stacks, gradient computation, training, and classification
+evaluation are not implemented yet.
+
+## Notebook walkthrough
+
+From the activated environment at the repository root:
 
 ```sh
-ruff check .
-ruff format --check .
-jupyter lab
+jupyter lab notebooks/UnderstandingDataset.ipynb
 ```
 
-The `tests/` directory is reserved for future tests; no tests are defined yet.
-Run `pytest` once tests have been added.
+Run the cells in order. The notebook explores the dataset and model counts,
+then walks through vocabulary creation, embeddings, sinusoidal positions,
+self-attention, residual addition, and a two-head attention example. The final
+section displays each head's attention weights and applies residual addition.
+
+The data-loading cell currently contains an absolute local path. Change
+`data_dir` to your checkout's `data/raw/` directory when running elsewhere.
+
+## Package example
+
+The reusable functions can also be imported independently of the notebook:
+
+```python
+from name_that_llm.tokenizer import build_vocab, encode
+from name_that_llm.embedding import initialize_embeddings, lookup_embeddings
+
+training_texts = ["Hello, world!", "Hello again."]
+vocab = build_vocab(training_texts)
+E = initialize_embeddings(vocab, d=8, seed=42)
+
+token_ids = encode("Hello, spaceship!", vocab)
+vectors = lookup_embeddings(token_ids, E)
+
+print(token_ids)
+print("Embedding shape:", len(vectors), "x", len(vectors[0]))
+```
+
+Here, `spaceship` maps to `<UNK>`. Encoding keeps the vocabulary fixed. Build
+the vocabulary from training texts only, then reuse it for validation, testing,
+and future predictions.
+
+## Checks
+
+```sh
+python -m pytest -q
+ruff check src tests
+ruff format --check src tests
+```
+
+Tests cover tokenization, unknown-token handling, embedding initialization,
+attention calculations, head concatenation and output projection, residual
+addition, and invalid shapes.
 
 ## Layout
 
@@ -36,28 +103,25 @@ data/
   raw/                  Original competition files; do not modify
   processed/            Future derived datasets
 models/                 Future trained model artifacts
-notebooks/              Future exploratory notebooks
+notebooks/              Dataset exploration and Transformer walkthrough
 reports/                Future evaluation results and figures
-src/name_that_llm/      Python package; currently an empty scaffold
-tests/                  Future automated tests
+src/name_that_llm/      Reusable tokenizer, embedding, attention, and residual code
+tests/                  Automated component tests
 ```
 
 ## Local competition data
 
-The supplied competition files are copied from
-`/Users/sahil/Downloads/name-that-llm/` into `data/raw/` during initial setup.
-Datasets and generated artifacts are ignored by Git. On a fresh clone, place
-your own competition files in `data/raw/`.
+Place the supplied competition files in `data/raw/`. Datasets and generated
+artifacts are ignored by Git and must be supplied separately on a fresh clone.
 
 | File | Rows | Columns / purpose |
 | --- | ---: | --- |
 | `train.csv` | 2,699 | `id`, `prompt_id`, `text`, `model` |
 | `test.csv` | 3 | `id`, `text` |
-| `sample_submission.parquet` | — | Supplied submission template |
+| `sample_submission.parquet` | 3 | `id`, `model`; supplied submission template |
 
-Keep `prompt_id` available for future evaluation splits so paragraphs from
-the same prompt can be grouped to reduce data leakage. Confirm the required
-submission schema against the supplied template before implementing exports.
-
-The supplied starter notebook remains in the Downloads folder as reference;
-it is not part of this setup.
+The notebook currently uses the labeled data for exploration. Before training
+and evaluation, create train/validation/local-test partitions that keep each
+`prompt_id` in one partition to reduce leakage. The supplied `test.csv` is the
+separate competition prediction set. Confirm the submission schema against the
+template before implementing exports.
