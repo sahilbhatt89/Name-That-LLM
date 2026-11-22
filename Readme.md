@@ -7,9 +7,9 @@ target label.
 The first goal is to learn the Transformer from *Attention Is All You Need* by
 implementing its components in plain Python, then apply them to LLM attribution.
 The current implementation covers tokenization, embedding lookup, single-head
-and multi-head self-attention, residual addition, and layer normalization. These
-are forward-pass calculations with initialized parameters; there is no trained
-classifier yet.
+and multi-head self-attention, residual addition, layer normalization, and the
+position-wise feed-forward network. These are forward-pass calculations with
+initialized parameters; there is no trained classifier yet.
 
 ## Environment
 
@@ -36,13 +36,14 @@ components use Python lists and standard-library modules; PyTorch is not require
 | Multi-head attention | `src/name_that_llm/attention.py` | Independent heads, concatenation, and output projection back to `d_model` |
 | Residual addition | `src/name_that_llm/residual.py` | Elementwise addition with matching-shape checks |
 | Layer normalization | `src/name_that_llm/normalization.py` | Per-token normalization across features, followed by scale and shift |
+| Feed-forward network | `src/name_that_llm/feed_forward.py` | Two affine projections with ReLU between them, sharing parameters across token positions |
 
 Attention functions receive projection matrices from the caller. Initialize
 these once and reuse them for subsequent inputs. `multi_head_attention` returns
 an output of shape `sequence_length × d_model` and weights of shape
 `num_heads × sequence_length × sequence_length`.
 
-Padding and causal masks, feed-forward blocks, complete encoder/decoder stacks,
+Dropout, padding and causal masks, complete encoder/decoder stacks,
 gradient computation, training, and classification evaluation are not
 implemented yet.
 
@@ -56,10 +57,11 @@ jupyter lab notebooks/UnderstandingDataset.ipynb
 
 Run the cells in order. The notebook explores the dataset and model counts,
 then walks through vocabulary creation, embeddings, sinusoidal positions,
-self-attention, residual addition, and a two-head attention example. The final
-section applies layer normalization to the residual output and displays each
-token's feature mean and variance. Its scale and shift parameters start at
-ones and zeros, respectively.
+self-attention, residual addition, and a two-head attention example. It then
+applies layer normalization and a feed-forward network that expands 8 features
+to 32 and projects back to 8. A second residual connection and separate layer
+normalization follow the feed-forward network. This demonstrates the two
+encoder sublayers without dropout or masks. Parameters remain untrained.
 
 The data-loading cell currently contains an absolute local path. Change
 `data_dir` to your checkout's `data/raw/` directory when running elsewhere.
@@ -97,7 +99,8 @@ ruff format --check src tests
 
 Tests cover tokenization, unknown-token handling, embedding initialization,
 attention calculations, head concatenation and output projection, residual
-addition, layer normalization, and invalid shapes.
+addition, layer normalization, feed-forward projections and ReLU, and invalid
+shapes.
 
 ## Layout
 
