@@ -8,7 +8,7 @@ The first goal is to learn the Transformer from *Attention Is All You Need* by
 implementing its components in plain Python, then apply them to LLM attribution.
 The current implementation covers tokenization, embedding lookup, single-head
 and multi-head self-attention, residual addition, layer normalization, and the
-position-wise feed-forward network. These are forward-pass calculations with
+position-wise feed-forward network, assembled into a reusable encoder stack. These are forward-pass calculations with
 initialized parameters; there is no trained classifier yet.
 
 ## Environment
@@ -37,13 +37,14 @@ components use Python lists and standard-library modules; PyTorch is not require
 | Residual addition | `src/name_that_llm/residual.py` | Elementwise addition with matching-shape checks |
 | Layer normalization | `src/name_that_llm/normalization.py` | Per-token normalization across features, followed by scale and shift |
 | Feed-forward network | `src/name_that_llm/feed_forward.py` | Two affine projections with ReLU between them, sharing parameters across token positions |
+| Encoder stack | `src/name_that_llm/encoder.py` | Applies post-normalized encoder layers in order and returns the final token vectors and attention weights for each layer and head |
 
 Attention functions receive projection matrices from the caller. Initialize
 these once and reuse them for subsequent inputs. `multi_head_attention` returns
 an output of shape `sequence_length × d_model` and weights of shape
 `num_heads × sequence_length × sequence_length`.
 
-Dropout, padding and causal masks, complete encoder/decoder stacks,
+Dropout, padding and causal masks, the Transformer decoder,
 gradient computation, training, and classification evaluation are not
 implemented yet.
 
@@ -61,7 +62,9 @@ self-attention, residual addition, and a two-head attention example. It then
 applies layer normalization and a feed-forward network that expands 8 features
 to 32 and projects back to 8. A second residual connection and separate layer
 normalization follow the feed-forward network. This demonstrates the two
-encoder sublayers without dropout or masks. Parameters remain untrained.
+encoder sublayers without dropout or masks. The final cells verify that an
+`EncoderLayer` reproduces this calculation, then apply a second independently
+initialized layer with `encoder_stack`. Parameters remain untrained.
 
 The data-loading cell currently contains an absolute local path. Change
 `data_dir` to your checkout's `data/raw/` directory when running elsewhere.
