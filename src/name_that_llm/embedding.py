@@ -1,5 +1,17 @@
+import math
 import random
 from collections.abc import Mapping, Sequence
+
+
+def position_vector(position: int, d: int) -> list[float]:
+    """Return the walkthrough's paired sine and cosine features for one position."""
+    if d <= 0 or d % 2:
+        raise ValueError("d must be a positive even number")
+    vector = []
+    for dimension in range(0, d, 2):
+        angle = position / (10000 ** (dimension / d))
+        vector.extend((math.sin(angle), math.cos(angle)))
+    return vector
 
 
 def initialize_embeddings(
