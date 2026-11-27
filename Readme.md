@@ -1,98 +1,88 @@
 # Name That LLM
 
-Identify which LLM generated a paragraph of text. This is a supervised,
-multiclass text classification project: `text` is the input and `model` is the
-target label.
+Given a paragraph of text, which LLM wrote it? This project builds the Transformer
+encoder from *Attention Is All You Need* in plain Python and uses its output for multiclass text attribution.
+The current forward pass produces one raw score per candidate model. The
+encoder and classification head use randomly initialized weights. Attribution
+accuracy will become meaningful once those weights have been trained and evaluated.
 
-The first goal is to learn the Transformer from *Attention Is All You Need* by
-implementing its components in plain Python, then apply them to LLM attribution.
-The current implementation covers tokenization, embedding lookup, single-head
-and multi-head self-attention, residual addition, layer normalization, and the
-position-wise feed-forward network, assembled into a reusable encoder stack. These are forward-pass calculations with
-initialized parameters; there is no trained classifier yet.
+## Set up and run the walkthrough
 
-## Environment
+1. From the repository root, create a Python 3.11+ environment and install the project.
 
-Use Python 3.11 or newer. From the repository root:
+   ```sh
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -e '.[dev,notebooks]'
+   ```
 
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev,notebooks]'
-```
+2. Place the supplied competition files in `data/raw/`. Git ignores these files.
+   The notebook reads the two CSVs. The Parquet file defines the competition submission format.
 
-The environment includes pandas, scikit-learn, and PyArrow for data work,
-Ruff and pytest for development, and JupyterLab for exploration. The Transformer
-components use Python lists and standard-library modules; PyTorch is not required.
+   | File | Rows | Columns |
+   | --- | ---: | --- |
+   | `train.csv` | 2,699 | `id`, `prompt_id`, `text`, `model` |
+   | `test.csv` | 3 | `id`, `text` |
+   | `sample_submission.parquet` | 3 | `id`, `model` |
 
-## Current components
+3. Open the notebook and run all cells in order using the project environment.
 
-| Component | Location | Behavior |
-| --- | --- | --- |
-| Tokenizer | `src/name_that_llm/tokenizer.py` | `tokenize`, `build_vocab`, and `encode`; preserves case and punctuation, with `<PAD>` and `<UNK>` IDs |
-| Embeddings | `src/name_that_llm/embedding.py` | Reproducible random initialization and embedding lookup; padding row is zero |
-| Sinusoidal positions | `notebooks/UnderstandingDataset.ipynb` | Creates positional vectors and adds them to token embeddings |
-| Self-attention | `src/name_that_llm/attention.py` | Query/key/value projections, scaled dot-product scores, and stable softmax |
-| Multi-head attention | `src/name_that_llm/attention.py` | Independent heads, concatenation, and output projection back to `d_model` |
-| Residual addition | `src/name_that_llm/residual.py` | Elementwise addition with matching-shape checks |
-| Layer normalization | `src/name_that_llm/normalization.py` | Per-token normalization across features, followed by scale and shift |
-| Feed-forward network | `src/name_that_llm/feed_forward.py` | Two affine projections with ReLU between them, sharing parameters across token positions |
-| Encoder stack | `src/name_that_llm/encoder.py` | Applies post-normalized encoder layers in order and returns the final token vectors and attention weights for each layer and head |
+   ```sh
+   jupyter lab notebooks/UnderstandingDataset.ipynb
+   ```
 
-Attention functions receive projection matrices from the caller. Initialize
-these once and reuse them for subsequent inputs. `multi_head_attention` returns
-an output of shape `sequence_length × d_model` and weights of shape
-`num_heads × sequence_length × sequence_length`.
+   The notebook inspects the data and counts examples per model, then traces
+   `Hello, world!` through a two-layer encoder and prints a score for each model
+   in the labeled CSV. The package example below also runs without competition data.
 
-Dropout, padding and causal masks, the Transformer decoder,
-gradient computation, training, and classification evaluation are not
-implemented yet.
+## How a paragraph gets a score
 
-## Notebook walkthrough
+| Step | Calculation in the walkthrough | Package code in `src/name_that_llm/` |
+| ---: | --- | --- |
+| 1 | Split text into words and punctuation, preserving case. Build a vocabulary once, reserve IDs for `<PAD>` and `<UNK>`, and map each token to its ID. The example has four tokens. | `tokenizer.py` |
+| 2 | Look up an eight-feature embedding for each ID. Add a sinusoidal position vector to each row so the encoder can distinguish token order. | `embedding.py` |
+| 3 | Project the input into queries, keys, and values. Divide query–key dot products by the square root of the key width, apply row-wise softmax, then take a weighted sum of values for each token. | `attention.py` |
+| 4 | Run two attention heads with independent projections, concatenate their results, and project back to eight features per token. | `attention.py` |
+| 5 | Add the input to the attention output. Normalize each token across its features and apply the attention sublayer's scale and shift. | `residual.py`, `normalization.py` |
+| 6 | Apply an affine projection from 8 to 32 features, ReLU, and a projection back to 8. Add the sublayer input and apply a second layer normalization with its own parameters. | `feed_forward.py`, `residual.py`, `normalization.py` |
+| 7 | Verify that one encoder layer reproduces steps 4–6. Pass its output through a second independently initialized layer. The stack returns a 4 × 8 matrix and the attention weights for each layer and head. | `encoder.py` |
+| 8 | Average each feature across the four token rows. This gives one eight-feature vector for the paragraph. | `classifier.py` |
+| 9 | For each model label, take the dot product of its weight vector with the paragraph vector and add its bias. The label with the highest raw score (logit) is the forward-pass prediction. | `classifier.py` |
 
-From the activated environment at the repository root:
+## Run a forward pass without the dataset
 
-```sh
-jupyter lab notebooks/UnderstandingDataset.ipynb
-```
-
-Run the cells in order. The notebook explores the dataset and model counts,
-then walks through vocabulary creation, embeddings, sinusoidal positions,
-self-attention, residual addition, and a two-head attention example. It then
-applies layer normalization and a feed-forward network that expands 8 features
-to 32 and projects back to 8. A second residual connection and separate layer
-normalization follow the feed-forward network. This demonstrates the two
-encoder sublayers without dropout or masks. The final cells verify that an
-`EncoderLayer` reproduces this calculation, then apply a second independently
-initialized layer with `encoder_stack`. Parameters remain untrained.
-
-The data-loading cell currently contains an absolute local path. Change
-`data_dir` to your checkout's `data/raw/` directory when running elsewhere.
-
-## Package example
-
-The reusable functions can also be imported independently of the notebook:
+Run this example in the activated environment. Initialize the parameters once
+and reuse the same vocabulary, embeddings, encoder layers, and head for each
+paragraph. Supply one unpadded paragraph containing at least one token per call.
 
 ```python
+import random
+
+from name_that_llm.classifier import ClassifierHead, mean_pool
+from name_that_llm.embedding import initialize_embeddings, lookup_embeddings, position_vector
+from name_that_llm.encoder import EncoderLayer, encoder_stack
+from name_that_llm.residual import residual_add
 from name_that_llm.tokenizer import build_vocab, encode
-from name_that_llm.embedding import initialize_embeddings, lookup_embeddings
 
 training_texts = ["Hello, world!", "Hello again."]
+labels = ["model-a", "model-b"]
+d_model = 8
 vocab = build_vocab(training_texts)
-E = initialize_embeddings(vocab, d=8, seed=42)
+embeddings = initialize_embeddings(vocab, d=d_model, seed=42)
+rng = random.Random(43)
+layers = [EncoderLayer.initialize(d_model, 2, 32, rng) for _ in range(2)]
+head = ClassifierHead.initialize(d_model, labels, rng)
 
-token_ids = encode("Hello, spaceship!", vocab)
-vectors = lookup_embeddings(token_ids, E)
-
-print(token_ids)
-print("Embedding shape:", len(vectors), "x", len(vectors[0]))
+token_ids = encode("Hello, spaceship!", vocab)  # spaceship maps to <UNK>
+vectors = lookup_embeddings(token_ids, embeddings)
+positions = [position_vector(i, d_model) for i in range(len(vectors))]
+contextual, _ = encoder_stack(residual_add(vectors, positions), layers)
+scores = head.forward(mean_pool(contextual))
+print(scores)
+print("Highest-scoring label (untrained):", max(scores, key=scores.get))
 ```
 
-Here, `spaceship` maps to `<UNK>`. Encoding keeps the vocabulary fixed. Build
-the vocabulary from training texts only, then reuse it for validation, testing,
-and future predictions.
-
-## Checks
+## Verify the implementation
 
 ```sh
 python -m pytest -q
@@ -100,37 +90,27 @@ ruff check src tests
 ruff format --check src tests
 ```
 
-Tests cover tokenization, unknown-token handling, embedding initialization,
-attention calculations, head concatenation and output projection, residual
-addition, layer normalization, feed-forward projections and ReLU, and invalid
-shapes.
-
-## Layout
+## Repository layout
 
 ```text
-data/
-  raw/                  Original competition files; do not modify
-  processed/            Future derived datasets
-models/                 Future trained model artifacts
-notebooks/              Dataset exploration and Transformer walkthrough
-reports/                Future evaluation results and figures
-src/name_that_llm/      Reusable Transformer components in plain Python
-tests/                  Automated component tests
+data/raw/             Original competition files
+data/processed/       Derived datasets
+models/               Trained model artifacts
+notebooks/            Dataset exploration and Transformer walkthrough
+reports/              Evaluation results and figures
+src/name_that_llm/    Reusable components
+tests/                Automated checks
 ```
 
-## Local competition data
+## Next steps for training
 
-Place the supplied competition files in `data/raw/`. Datasets and generated
-artifacts are ignored by Git and must be supplied separately on a fresh clone.
-
-| File | Rows | Columns / purpose |
-| --- | ---: | --- |
-| `train.csv` | 2,699 | `id`, `prompt_id`, `text`, `model` |
-| `test.csv` | 3 | `id`, `text` |
-| `sample_submission.parquet` | 3 | `id`, `model`; supplied submission template |
-
-The notebook currently uses the labeled data for exploration. Before training
-and evaluation, create train/validation/local-test partitions that keep each
-`prompt_id` in one partition to reduce leakage. The supplied `test.csv` is the
-separate competition prediction set. Confirm the submission schema against the
-template before implementing exports.
+1. Split the labeled rows into training, validation, and local test partitions.
+   Keep every `prompt_id` in one partition so responses to the same prompt stay together.
+2. Build the vocabulary and label mapping from the training partition. Reuse
+   them for validation, local testing, and competition predictions.
+3. Implement the training loss, gradients, and parameter updates. The current
+   encoder processes individual unpadded sequences. Padded batches would also
+   need masking in attention and pooling.
+4. Select the model using validation results, evaluate on the held-out local
+   test partition, then predict labels for the separate competition `test.csv`.
+   Match the IDs and schema in `sample_submission.parquet` when exporting.
